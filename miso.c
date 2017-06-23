@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <openssl/ssl.h>
+#include <poll.h>
 
 typedef struct {
     
@@ -17,7 +18,8 @@ typedef struct {
 const MISO_ERR MISO_ERR_NONE = {0, "No errors"},
                MISO_ERR_INIT = {1, "Socket Initialization Failed"},
                MISO_ERR_BIND = {2, "Socket Bind Failed"},
-               MISO_ERR_OSSL = {3, "SSL Initialization Failed"};
+               MISO_ERR_CONN = {3, "Socket Connect Failed"},
+               MISO_ERR_OSSL = {4, "SSL Initialization Failed"};
 
 typedef struct {
     
@@ -43,18 +45,33 @@ int miso_openssl(MISO *m, int init) {
             SSL_load_error_strings();
             OpenSSL_add_ssl_algorithms();
             method = SSLv23_server_method();
+            
+            if(!method) {
+                m->error = MISO_ERR_OSSL;
+                return -1;
+            }
             break;
+            
         case 0:
-            m->context = SSL_CTX_new(method);
+            if(!m->context)
+                m->context = SSL_CTX_new(method);
+            
+            if(!m->context) {
+                m->error = MISO_ERR_OSSL;
+                return -1;
+            }
             break;
+            
         case -1:
+            if(!m->context)
+                SSL_CTX_free(m->context);
             break;
     }
 }
 
-MISO *miso_genserver(int port) {
+MISO *miso_genmiso(const char *host, const char *port) {
     
-    if(port < 1)
+    if(atoi(port) < 1)
         return NULL;
     
     struct addrinfo hints = {
@@ -69,12 +86,12 @@ MISO *miso_genserver(int port) {
     };
     
     struct addrinfo *result, *current;
-    getaddrinfo(NULL, "9090", &hints, &result);
+    getaddrinfo(host, port, &hints, &result);
     
     MISO *m = (MISO*) malloc(sizeof(MISO));
     *m = (MISO){
         0,
-        port,
+        atoi(port),
         hints,
         -1,
         NULL,
@@ -87,24 +104,29 @@ MISO *miso_genserver(int port) {
         
         m->addr = *current;
         
-        if((m->socket = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+        if((m->socket = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
             m->error = MISO_ERR_INIT;
-        else
-            if(bind(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
+        }
+        else {
+            if(!host && bind(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
                 m->error = MISO_ERR_BIND;
+            
+            else if(host && connect(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
+                m->error = MISO_ERR_CONN;
+            
             else
                 m->error = MISO_ERR_NONE;
+        }
         
         current = current->ai_next;
-        printf("%d\n", (current && !m->error.code));
-        printf("%d\n", m->error.code);
     }
+    
     
     freeaddrinfo(result);
     return m;
 }
 
-int miso_listen(MISO *m) {
+int miso_accept(MISO *m) {
     
     
 }
@@ -120,9 +142,4 @@ int misodel(MISO *m) {
 
 int main() {
     
-    //MISO *m = miso_genserver(1024);
-    miso_openssl(NULL, 1);
-    //printf("%d\n", m->error);
-    //printf("%d: %s\n", m->error.code, m->error.msg);
-    //misodel(m);
 }
