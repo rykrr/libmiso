@@ -28,6 +28,7 @@ const MISO_ERR MISO_ERR_NONE = {0, "No errors"},
 
 typedef struct {
     
+    int             type;
     int             state;
     int             port;
     struct addrinfo addr;
@@ -69,6 +70,17 @@ int miso_openssl(MISO *m, int init) {
                 m->error = MISO_ERR_OSSL;
                 return -1;
             }
+            
+            if(m->type) {
+            
+                int a = SSL_CTX_use_certificate_file(m->context, "cert.pem", SSL_FILETYPE_PEM);
+                int b = SSL_CTX_use_PrivateKey_file(m->context, "key.pem", SSL_FILETYPE_PEM);
+                
+                if(a<1 || b<1) {
+                    m->error = MISO_ERR_CERT;
+                    return -1;
+                }
+            }
             break;
             
         case -1:
@@ -86,7 +98,7 @@ MISO *miso_new(const char *host, const char *port) {
         return NULL;
     
     struct addrinfo hints = {
-        AI_PASSIVE,
+        !host?AI_PASSIVE:NULL,
         AF_INET,
         SOCK_STREAM,
         IPPROTO_TCP,
@@ -101,6 +113,7 @@ MISO *miso_new(const char *host, const char *port) {
     
     MISO *m = (MISO*) malloc(sizeof(MISO));
     *m = (MISO){
+        host?0:1,
         0,
         atoi(port),
         hints,
@@ -129,8 +142,12 @@ MISO *miso_new(const char *host, const char *port) {
         else {
             m->error = MISO_ERR_NONE;
             
-            if(!host && bind(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
-                m->error = MISO_ERR_BIND;
+            if(!host) {
+                if(bind(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
+                    m->error = MISO_ERR_BIND;
+                else
+                    listen(m->socket, 16);
+            }
             
             if(host) {
                 printf("connect\n");
@@ -164,8 +181,42 @@ MISO *miso_new(const char *host, const char *port) {
     return m;
 }
 
-int miso_accept(MISO *m) {
-    return 0;
+int miso_accept(MISO *s, MISO *c) {
+    
+    nfds_t nfd = 1;
+    struct pollfd pfd = {
+        s->socket,
+        POLLIN
+    };
+    
+    poll(&pfd, nfd, 1000);
+    
+    if(pfd.revents == POLLIN) {
+        
+        MISO *c = (MISO*) malloc(sizeof(MISO));
+        c->socket = accept(s->socket, c->addr.ai_addr, &c->addr.ai_addrlen);
+        
+        if(c->socket<0) {
+            c->error = MISO_ERR_INIT;
+            return -1;
+        }
+        else {
+            miso_openssl(c, 1);
+            c->ssl = SSL_new(c->context);
+            SSL_set_fd(c->ssl, c->socket);
+            
+            if(SSL_accept(c->ssl) <1) {
+                c->error = MISO_ERR_OSSL;
+                return -1;
+            }
+            else {
+                return 0;
+            }
+        }
+    }
+    else {
+        return 1;
+    }
 }
 
 void miso_del(MISO *m) {
