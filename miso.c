@@ -56,7 +56,7 @@ int miso_openssl(MISO *m, int init) {
             break;
             
         case 0:
-            method = SSLv23_server_method();
+            method = SSLv3_server_method();
             
             if(!method) {
                 m->error = MISO_ERR_OSSL;
@@ -201,8 +201,8 @@ int miso_accept(MISO *s, MISO *c) {
             return -1;
         }
         else {
-            miso_openssl(c, 1);
-            c->ssl = SSL_new(c->context);
+            c->context = NULL;
+            c->ssl = SSL_new(s->context);
             SSL_set_fd(c->ssl, c->socket);
             
             if(SSL_accept(c->ssl) <1) {
