@@ -24,7 +24,10 @@ const MISO_ERR MISO_ERR_NONE = {0, "No errors"},
                MISO_ERR_BIND = {2, "Socket Bind Failed"},
                MISO_ERR_CONN = {3, "Socket Connect Failed"},
                MISO_ERR_OSSL = {4, "SSL Initialization Failed"},
-               MISO_ERR_CERT = {5, "SSL Certificate Failed"};
+               MISO_ERR_CERT = {5, "SSL Certificate Failed"},
+               MISO_ERR_SEND = {6, "Failed to send"},
+               MISO_ERR_RECV = {7, "Failed to receive"},
+               MISO_ERR_ARRY = {8, "Array populated, should be NULL"};
 
 typedef struct {
     
@@ -37,6 +40,7 @@ typedef struct {
     SSL_CTX         *context;
     X509            *cert;
     MISO_ERR        error;
+    char            *data;
     
 } MISO;
 
@@ -56,7 +60,7 @@ int miso_openssl(MISO *m, int init) {
             break;
             
         case 0:
-            method = SSLv3_server_method();
+            method = m->type? TLS_server_method() : TLS_client_method();
             
             if(!method) {
                 m->error = MISO_ERR_OSSL;
@@ -98,7 +102,7 @@ MISO *miso_new(const char *host, const char *port) {
         return NULL;
     
     struct addrinfo hints = {
-        !host?AI_PASSIVE:NULL,
+        !host?AI_PASSIVE:0,
         AF_INET,
         SOCK_STREAM,
         IPPROTO_TCP,
@@ -122,6 +126,7 @@ MISO *miso_new(const char *host, const char *port) {
         NULL,
         NULL,
         MISO_ERR_NONE,
+        NULL,
     };
     
     if(miso_openssl(m, 1) || miso_openssl(m, 0)) {
@@ -183,53 +188,105 @@ MISO *miso_new(const char *host, const char *port) {
 
 int miso_accept(MISO *s, MISO *c) {
     
-    nfds_t nfd = 1;
-    struct pollfd pfd = {
-        s->socket,
-        POLLIN
-    };
-    
-    poll(&pfd, nfd, 1000);
-    
-    if(pfd.revents == POLLIN) {
+    if(s && !s->error.code && !c) {
         
-        MISO *c = (MISO*) malloc(sizeof(MISO));
-        c->socket = accept(s->socket, c->addr.ai_addr, &c->addr.ai_addrlen);
+        nfds_t nfd = 1;
+        struct pollfd pfd = {
+            s->socket,
+            POLLIN
+        };
         
-        if(c->socket<0) {
-            c->error = MISO_ERR_INIT;
-            return -1;
-        }
-        else {
-            c->context = NULL;
-            c->ssl = SSL_new(s->context);
-            SSL_set_fd(c->ssl, c->socket);
+        poll(&pfd, nfd, 1000);
+        
+        if(pfd.revents == POLLIN) {
             
-            if(SSL_accept(c->ssl) <1) {
-                c->error = MISO_ERR_OSSL;
+            MISO *c = (MISO*) malloc(sizeof(MISO));
+            c->socket = accept(s->socket, c->addr.ai_addr, &c->addr.ai_addrlen);
+            
+            if(c->socket<0) {
+                c->error = MISO_ERR_INIT;
                 return -1;
             }
             else {
-                return 0;
+                c->context = NULL;
+                c->ssl = SSL_new(s->context);
+                SSL_set_fd(c->ssl, c->socket);
+                
+                if(SSL_accept(c->ssl) <1) {
+                    c->error = MISO_ERR_OSSL;
+                    return -1;
+                }
+                else {
+                    return 0;
+                }
             }
         }
+        else {
+            return 1;
+        }
     }
-    else {
-        return 1;
+    
+    return -1;
+}
+
+int miso_send(MISO *m, char *r) {
+    
+    if(m && !m->error.code && m->ssl
+    && SSL_write(m->ssl, r, strlen(r))<1) {
+        
+        m->error = MISO_ERR_SEND;
+        return -1;
     }
+    
+    return 0;
+}
+
+int miso_recv(MISO *m) {
+    
+    if(m && !m->error.code && m->ssl) {
+        
+        int bytes = SSL_pending(m->ssl);
+        
+        if(bytes) {
+            
+            if(m->data)
+                free(m->data);
+            
+            m->data = malloc(bytes*sizeof(char));
+            
+            if(SSL_read(m->ssl, m->data, bytes)<1) {
+                m->error = MISO_ERR_RECV;
+                return -1;
+            }
+            else {
+                return 1;
+            }
+        }
+        else {
+            return 1;
+        }
+    }
+    
+    return -1;
 }
 
 void miso_del(MISO *m) {
     
     if(m) {
-        if(m->ssl)
+        
+        if(m->ssl) {
+            while(!SSL_shutdown(m->ssl));
             SSL_free(m->ssl);
+        }
         
         if(m->context)
             SSL_CTX_free(m->context);
         
         if(m->socket)
             close(m->socket);
+        
+        if(m->data)
+            free(m->data);
             
         free(m);
     }
@@ -237,13 +294,14 @@ void miso_del(MISO *m) {
 
 int miso_error(MISO *m) {
     
-    if(m->error.code) {
+    if(m && m->error.code) {
         printf("=== Error ===\n");
         printf("%03d: %s\n", m->error.code, m->error.msg);
         printf("%03d: %s\n", errno, strerror(errno));
         ERR_print_errors_fp(stderr);
     }
-    return m->error.code;
+    
+    return m? m->error.code : -1;
 }
 
 int main() {
