@@ -1,48 +1,10 @@
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <errno.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/crypto.h>
-#include <poll.h>
+/* Minimal Socket (MISO) Wrapper Library */
+/* Copyright (c) 2017 Ryan Kerr          */
 
-typedef struct {
-    
-    int code;
-    const char *msg;
-    
-} MISO_ERR;
+/* This code is without warranty and is  */
+/* only meant for prototyping.           */
 
-const MISO_ERR MISO_ERR_NONE = {0, "No errors"},
-               MISO_ERR_INIT = {1, "Socket Initialization Failed"},
-               MISO_ERR_BIND = {2, "Socket Bind Failed"},
-               MISO_ERR_CONN = {3, "Socket Connect Failed"},
-               MISO_ERR_OSSL = {4, "SSL Initialization Failed"},
-               MISO_ERR_CERT = {5, "SSL Certificate Failed"},
-               MISO_ERR_SEND = {6, "Failed to send"},
-               MISO_ERR_RECV = {7, "Failed to receive"},
-               MISO_ERR_ARRY = {8, "Array populated, should be NULL"};
-
-typedef struct {
-    
-    int             type;
-    int             state;
-    int             port;
-    struct addrinfo addr;
-    int             socket;
-    SSL             *ssl;
-    SSL_CTX         *context;
-    X509            *cert;
-    MISO_ERR        error;
-    char            *data;
-    
-} MISO;
+#include "miso.h"
 
 int miso_openssl(MISO *m, int init) {
     
@@ -302,11 +264,4 @@ int miso_error(MISO *m) {
     }
     
     return m? m->error.code : -1;
-}
-
-int main() {
-    
-    MISO *m = miso_new("0.71.218.148", "80");
-    miso_error(m);
-    miso_del(m);
 }
