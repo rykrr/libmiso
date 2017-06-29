@@ -43,15 +43,16 @@ typedef struct {
     
 } MISO;
 
-const MISO_ERR MISO_ERR_NONE = {0, "No errors"},
-               MISO_ERR_INIT = {1, "Socket Initialization Failed"},
-               MISO_ERR_BIND = {2, "Socket Bind Failed"},
-               MISO_ERR_CONN = {3, "Socket Connect Failed"},
-               MISO_ERR_OSSL = {4, "SSL Initialization Failed"},
-               MISO_ERR_CERT = {5, "SSL Certificate Failed"},
-               MISO_ERR_SEND = {6, "Failed to send"},
-               MISO_ERR_RECV = {7, "Failed to receive"},
-               MISO_ERR_ARRY = {8, "Array populated, should be NULL"};
+const MISO_ERR MISO_ERR_NONE,// = {0, "No errors"},
+               MISO_ERR_DEFT,// = {1, "Initializing"},
+               MISO_ERR_INIT,// = {1, "Socket Initialization Failed"},
+               MISO_ERR_BIND,// = {2, "Socket Bind Failed"},
+               MISO_ERR_CONN,// = {3, "Socket Connect Failed"},
+               MISO_ERR_OSSL,// = {4, "SSL Initialization Failed"},
+               MISO_ERR_CERT,// = {5, "SSL Certificate Failed"},
+               MISO_ERR_SEND,// = {6, "Failed to send"},
+               MISO_ERR_RECV,// = {7, "Failed to receive"},
+               MISO_ERR_ARRY;// = {8, "Array populated, should be NULL"};
 
 MISO   *miso_new(const char*, const char*);
 void    miso_del(MISO*);

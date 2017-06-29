@@ -6,6 +6,17 @@
 
 #include "miso.h"
 
+const MISO_ERR MISO_ERR_NONE = {0, "No errors"},
+               MISO_ERR_DEFT = {1, "Initializing"},
+               MISO_ERR_INIT = {1, "Socket Initialization Failed"},
+               MISO_ERR_BIND = {2, "Socket Bind Failed"},
+               MISO_ERR_CONN = {3, "Socket Connect Failed"},
+               MISO_ERR_OSSL = {4, "SSL Initialization Failed"},
+               MISO_ERR_CERT = {5, "SSL Certificate Failed"},
+               MISO_ERR_SEND = {6, "Failed to send"},
+               MISO_ERR_RECV = {7, "Failed to receive"},
+               MISO_ERR_ARRY = {8, "Array populated, should be NULL"};
+
 int miso_openssl(MISO *m, int init) {
     
     if(!m)
@@ -97,8 +108,9 @@ MISO *miso_new(const char *host, const char *port) {
     }
     
     current = result;
+    m->error = MISO_ERR_DEFT;
     
-    while(current && !m->error.code) {
+    while(current && m->error.code) {
         
         m->addr = *current;
         printf("current\n");
@@ -133,6 +145,8 @@ MISO *miso_new(const char *host, const char *port) {
                         
                         if(!m->cert)
                             m->error = MISO_ERR_CERT;
+                        else
+                            m->error = MISO_ERR_NONE;
                     }
                 }
                 else {
@@ -148,9 +162,9 @@ MISO *miso_new(const char *host, const char *port) {
     return m;
 }
 
-int miso_accept(MISO *s, MISO *c) {
+int miso_accept(MISO *s, MISO **r) {
     
-    if(s && !s->error.code && !c) {
+    if(s && !s->error.code && r) {
         
         nfds_t nfd = 1;
         struct pollfd pfd = {
@@ -163,7 +177,9 @@ int miso_accept(MISO *s, MISO *c) {
         if(pfd.revents == POLLIN) {
             
             MISO *c = (MISO*) malloc(sizeof(MISO));
+            r = c;
             c->socket = accept(s->socket, c->addr.ai_addr, &c->addr.ai_addrlen);
+            c->data = NULL;
             
             if(c->socket<0) {
                 c->error = MISO_ERR_INIT;
@@ -179,6 +195,7 @@ int miso_accept(MISO *s, MISO *c) {
                     return -1;
                 }
                 else {
+                    c->error = MISO_ERR_NONE;
                     return 0;
                 }
             }
@@ -193,21 +210,76 @@ int miso_accept(MISO *s, MISO *c) {
 
 int miso_send(MISO *m, char *r) {
     
-    if(m && !m->error.code && m->ssl
-    && SSL_write(m->ssl, r, strlen(r))<1) {
+    if(m && !m->error.code && m->ssl) {
         
-        m->error = MISO_ERR_SEND;
-        return -1;
+        int size = strlen(r);
+        char csize[] = {
+            (size&0x00FF),
+            (size&0xFF00),
+            '\0'
+        };
+        
+        int rsize = SSL_write(m->ssl, csize, 3);
+        
+        if(rsize > 1) {
+            int fsize = SSL_write(m->ssl, r, strlen(r));
+            
+            if(fsize < 0) {
+                return 1;
+            }
+            else if(fsize == 0) {
+                m->error = MISO_ERR_SEND;
+                return -1;
+            }
+            else {
+                return 0;
+            }
+        }
+        else if(rsize < 0){
+            return 1;
+        }
+        else {
+            m->error = MISO_ERR_SEND;
+            return -1;
+        }
     }
     
-    return 0;
+    return 1;
 }
 
 int miso_recv(MISO *m) {
     
     if(m && !m->error.code && m->ssl) {
         
-        int bytes = SSL_pending(m->ssl);
+        nfds_t nfd = 1;
+        struct pollfd pfd = {
+            m->socket,
+            POLLIN
+        };
+        
+        poll(&pfd, nfd, 1000);
+        
+        char csize[3];
+        int  rsize = 0;
+        int  bytes = 0;
+        
+        if(pfd.revents == POLLIN) {
+            rsize = SSL_read(m->ssl, csize, 3);
+        }
+        else {
+            return 1;
+        }
+        
+        if(!rsize) {
+            m->error = MISO_ERR_RECV;
+            return -1;
+        }
+        else if(rsize < 0) {
+            return 1;
+        }
+        else {
+            bytes = csize[0] | csize[1]<<8;
+        }
         
         if(bytes) {
             
