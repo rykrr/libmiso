@@ -121,6 +121,9 @@ MISO *miso_new(const char *host, const char *port) {
         else {
             m->error = MISO_ERR_NONE;
             
+            int sra = 1;
+            setsockopt(m->socket, SOL_SOCKET, SO_REUSEADDR, &sra, sizeof(sra));
+            
             if(!host) {
                 if(bind(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
                     m->error = MISO_ERR_BIND;
@@ -155,8 +158,17 @@ MISO *miso_new(const char *host, const char *port) {
             }
         }
         
+        if(m->error.code) {
+            close(m->socket);
+            m->socket = 0;
+        }
+        
         current = current->ai_next;
     }
+    
+    int sra = 1;
+    if(m->socket)
+        setsockopts(m->socket, SOL_SOCKET, SO_REUSEADDR, &sra, sizeof(int));
     
     freeaddrinfo(result);
     return m;
@@ -312,16 +324,23 @@ void miso_del(MISO *m) {
         if(m->ssl) {
             while(!SSL_shutdown(m->ssl));
             SSL_free(m->ssl);
+            m->ssl = NULL;
         }
         
-        if(m->context)
+        if(m->context) {
             SSL_CTX_free(m->context);
+            m->context = NULL;
+        }
         
-        if(m->socket)
+        if(m->socket) {
             close(m->socket);
+            m->socket = 0;
+        }
         
-        if(m->data)
+        if(m->data) {
             free(m->data);
+            m->data = NULL;
+        }
             
         free(m);
     }
