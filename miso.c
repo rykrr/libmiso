@@ -177,7 +177,7 @@ int miso_accept(MISO *s, MISO **r) {
         if(pfd.revents == POLLIN) {
             
             MISO *c = (MISO*) malloc(sizeof(MISO));
-            r = c;
+            *r = c;
             c->socket = accept(s->socket, c->addr.ai_addr, &c->addr.ai_addrlen);
             c->data = NULL;
             
@@ -215,7 +215,7 @@ int miso_send(MISO *m, char *r) {
         int size = strlen(r);
         char csize[] = {
             (size&0x00FF),
-            (size&0xFF00),
+            ((size&0xFF00)>>8)&0x00FF,
             '\0'
         };
         
@@ -279,6 +279,7 @@ int miso_recv(MISO *m) {
         }
         else {
             bytes = csize[0] | csize[1]<<8;
+            bytes &= 0xFFFF;
         }
         
         if(bytes) {
@@ -293,7 +294,7 @@ int miso_recv(MISO *m) {
                 return -1;
             }
             else {
-                return 1;
+                return 0;
             }
         }
         else {

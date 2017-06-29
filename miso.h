@@ -57,7 +57,7 @@ const MISO_ERR MISO_ERR_NONE,// = {0, "No errors"},
 MISO   *miso_new(const char*, const char*);
 void    miso_del(MISO*);
 
-int     miso_accept(MISO*, MISO*);
+int     miso_accept(MISO*, MISO**);
 int     miso_error(MISO*);
 
 int     miso_send(MISO*, char*);
