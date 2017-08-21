@@ -168,7 +168,7 @@ MISO *miso_new(const char *host, const char *port) {
     
     int sra = 1;
     if(m->socket)
-        setsockopts(m->socket, SOL_SOCKET, SO_REUSEADDR, &sra, sizeof(int));
+        setsockopt(m->socket, SOL_SOCKET, SO_REUSEADDR, &sra, sizeof(int));
     
     freeaddrinfo(result);
     return m;
