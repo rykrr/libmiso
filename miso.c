@@ -111,9 +111,11 @@ MISO *miso_new(const char *host, const char *port) {
     m->error = MISO_ERR_DEFT;
     
     while(current && m->error.code) {
+    
+        if(MISO_DEBUG)
+            printf("[  new  ] Iterating through address results\n");
         
         m->addr = *current;
-        printf("current\n");
         
         if((m->socket = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
             m->error = MISO_ERR_INIT;
@@ -125,25 +127,40 @@ MISO *miso_new(const char *host, const char *port) {
             setsockopt(m->socket, SOL_SOCKET, SO_REUSEADDR, &sra, sizeof(sra));
             
             if(!host) {
+                
+                if(MISO_DEBUG)
+                    printf("[  new  ] Establishing host socket\n");
+                
                 if(bind(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)<0)
                     m->error = MISO_ERR_BIND;
                 else
                     listen(m->socket, 16);
+                
+                if(MISO_DEBUG)
+                    printf("[  new  ] %s\n", m->error.code?"Establishing socket failed":"Socket success");
             }
             
             if(host) {
-                printf("connect\n");
+                if(MISO_DEBUG)
+                    printf("[  new  ] Attempting connection\n");
+                
                 if(!connect(m->socket, m->addr.ai_addr, m->addr.ai_addrlen)) {
                     
-                    printf("passed\n");
+                    if(MISO_DEBUG)
+                        printf("[  new  ] Initial connection has succeeded, moving to ssl\n");
+                    
                     m->ssl = SSL_new(m->context);
                     SSL_set_fd(m->ssl, m->socket);
                     
                     if(SSL_connect(m->ssl) != 1) {
-                        printf("Error here\n");
+                        if(MISO_DEBUG)
+                            printf("[  new  ] SSL connection has failed to initialize\n");
                         m->error = MISO_ERR_OSSL;
                     }
                     else {
+                        if(MISO_DEBUG)
+                            printf("[  new  ] Connection succeeded\n");
+                        
                         m->cert = SSL_get_peer_certificate(m->ssl);
                         
                         if(!m->cert)
@@ -157,6 +174,9 @@ MISO *miso_new(const char *host, const char *port) {
                 }
             }
         }
+        
+        if(MISO_DEBUG)
+            printf("[  new  ] %s\n", m->error.code?"An error occurred, connection destroyed":"Socket ready");
         
         if(m->error.code) {
             close(m->socket);
@@ -186,7 +206,13 @@ int miso_accept(MISO *s, MISO **r) {
         
         poll(&pfd, nfd, 1000);
         
+        if(MISO_DEBUG)
+            printf("[  acc  ] Accepting connections\n");
+        
         if(pfd.revents == POLLIN) {
+            
+            if(MISO_DEBUG)
+                printf("[  acc  ] Polling success, initializing connection\n");
             
             MISO *c = (MISO*) malloc(sizeof(MISO));
             *r = c;
@@ -194,29 +220,47 @@ int miso_accept(MISO *s, MISO **r) {
             c->data = NULL;
             
             if(c->socket<0) {
+                
+                if(MISO_DEBUG)
+                    printf("[  acc  ] Failed\n");
+                miso_del(c);
+                r = NULL;
                 c->error = MISO_ERR_INIT;
                 return -1;
             }
             else {
+                if(MISO_DEBUG)
+                    printf("[  acc  ] Establishing SSL\n");
+                
                 c->context = NULL;
                 c->ssl = SSL_new(s->context);
                 SSL_set_fd(c->ssl, c->socket);
                 
                 if(SSL_accept(c->ssl) <1) {
+                    if(MISO_DEBUG)
+                        printf("[  acc  ] Failed\n");
+                    miso_del(c);
+                    r = NULL;
                     c->error = MISO_ERR_OSSL;
                     return -1;
                 }
                 else {
+                    if(MISO_DEBUG)
+                        printf("[  acc  ] Success!\n");
                     c->error = MISO_ERR_NONE;
                     return 0;
                 }
             }
         }
         else {
+            if(MISO_DEBUG)
+                printf("[  acc  ] Polling failed. Skipping\n");
             return 1;
         }
     }
     
+    if(MISO_DEBUG)
+        printf("[  acc  ] This should never appear\n");
     return -1;
 }
 
@@ -231,32 +275,50 @@ int miso_send(MISO *m, char *r) {
             '\0'
         };
         
+        if(MISO_DEBUG)
+            printf("[  snd  ] Sending 3 initialization bytes (%d)\n", csize);
         int rsize = SSL_write(m->ssl, csize, 3);
         
         if(rsize > 1) {
+            
+            if(MISO_DEBUG)
+                printf("[  snd  ] Sending message (%s)\n", r);
             int fsize = SSL_write(m->ssl, r, strlen(r));
             
             if(fsize < 0) {
+                if(MISO_DEBUG)
+                    printf("[  snd  ] Send message skipped\n");
                 return 1;
             }
             else if(fsize == 0) {
+                if(MISO_DEBUG)
+                    printf("[  snd  ] Send message failed\n");
                 m->error = MISO_ERR_SEND;
                 return -1;
             }
             else {
+                if(MISO_DEBUG)
+                    printf("[  snd  ] Success\n");
                 return 0;
             }
         }
         else if(rsize < 0){
+            if(MISO_DEBUG)
+                printf("[  snd  ] Send bytes skipped\n");
             return 1;
         }
         else {
+            if(MISO_DEBUG)
+                printf("[  snd  ] Send bytes failed\n");
             m->error = MISO_ERR_SEND;
             return -1;
         }
     }
     
-    return 1;
+    if(MISO_DEBUG)
+        printf("[  snd  ] Invalid socket/message\n");
+    
+    return -1;
 }
 
 int miso_recv(MISO *m) {
@@ -276,17 +338,26 @@ int miso_recv(MISO *m) {
         int  bytes = 0;
         
         if(pfd.revents == POLLIN) {
+            if(MISO_DEBUG)
+                printf("[  rcv  ] Polling success, reading bytes\n");
+            
             rsize = SSL_read(m->ssl, csize, 3);
         }
         else {
+            if(MISO_DEBUG)
+                printf("[  rcv  ] Polling failed. Skipping\n");
             return 1;
         }
         
         if(!rsize) {
+            if(MISO_DEBUG)
+                printf("[  rcv  ] Error receiving\n");
             m->error = MISO_ERR_RECV;
             return -1;
         }
         else if(rsize < 0) {
+            if(MISO_DEBUG)
+                printf("[  rcv  ] Skipping\n");
             return 1;
         }
         else {
@@ -300,16 +371,28 @@ int miso_recv(MISO *m) {
                 free(m->data);
             
             m->data = malloc(bytes*sizeof(char));
+            for(int i=0; i<bytes; i++)
+                m->data[i] = '\0';
             
+            if(MISO_DEBUG)
+                printf("[  rcv  ] Reading message\n");
             if(SSL_read(m->ssl, m->data, bytes)<1) {
+                if(MISO_DEBUG)
+                    printf("[  rcv  ] Failed to receive message\n");
                 m->error = MISO_ERR_RECV;
                 return -1;
             }
             else {
+                if(MISO_DEBUG)
+                    printf("[  rcv  ] Receiving success\n");
                 return 0;
             }
+            
+            m->data[bytes] = '\0';
         }
         else {
+            if(MISO_DEBUG)
+                printf("[  rcv  ] No bytes to read, skipping\n");
             return 1;
         }
     }
