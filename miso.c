@@ -388,7 +388,7 @@ int miso_recv(MISO *m) {
                 return 0;
             }
             
-            m->data[bytes] = '\0';
+            m->data[bytes+1] = '\0';
         }
         else {
             if(MISO_DEBUG)
